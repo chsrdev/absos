@@ -312,6 +312,8 @@ bot.on('edited_business_message', async (msg) => {
 
 // Единый вход для всех сообщений
 bot.on('message', async (msg) => {
+  const incomingText = String(msg.text || msg.caption || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  console.log(`[INCOMING] chat=${msg.chat?.id} type=${msg.chat?.type} from=${msg.from?.id || 'unknown'} message=${msg.message_id || 'unknown'} text=${JSON.stringify(incomingText)}`);
   // Игнорируем сообщения, старше 2 минут (чтобы не отвечать на старое при рестарте)
   if (msg.chat?.type === 'private' && !msg.business_connection_id && msg.chat.id !== config.adminId) {
     const isPayment = Boolean(msg.successful_payment || msg.refunded_payment);

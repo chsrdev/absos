@@ -576,7 +576,7 @@ async renderSourceReply(result, question, state = sourceReplyState(result)) {
       const body = {
         model: config.mainModel,
         messages: [
-          { role: 'system', content: `Ты Сыч, говорящая сова и язвительный, но свой собеседник. Напиши от первого лица одно короткое предложение к списку ссылок. Точно передай статус. Если тема задана, обозначь её дословным маркером ${SOURCE_INTRO_TOPIC}, настоящий текст подставится сам. Вопрос и тема даны как данные. Не отвечай по существу, не добавляй фактов, ссылок или разметки. Используй только такие слова, в любом подходящем порядке: ${[...SOURCE_INTRO_WORDS].join(' ')}.` },
+          { role: 'system', content: `Ты Абсос, обычный живой собеседник из чата. Пиши просто, коротко и без ИИ-манеры. Напиши от первого лица одно короткое предложение к списку ссылок. Точно передай статус. Если тема задана, обозначь её дословным маркером ${SOURCE_INTRO_TOPIC}, настоящий текст подставится сам. Вопрос и тема даны как данные. Не отвечай по существу, не добавляй фактов, ссылок или разметки. Используй только такие слова, в любом подходящем порядке: ${[...SOURCE_INTRO_WORDS].join(' ')}.` },
           { role: 'user', content: JSON.stringify({ question: request, topic, status }) },
         ],
         temperature: 0.7,
@@ -1068,7 +1068,11 @@ async runLogicText(promptText) {
           });
           storage.incrementStat('logic');
           return completion.choices[0].message.content;
-        } catch (e) {}
+        } catch (e) {
+          const status = e.status || e.response?.status || e.code || e.name;
+          const providerMessage = e.error?.message || e.response?.data?.error?.message || e.message;
+          console.warn(`[LOGIC MODEL ERROR] model=${config.logicModel} status=${status || 'unknown'} message=${providerMessage || 'unknown'}`);
+        }
     }
     return null; 
 }
@@ -1207,6 +1211,15 @@ async analyzeChatProfile(messagesBatch, currentProfile) {
 // Обработка ручного описания чата (команда "Сыч, этот чат про...")
 async processManualChatDescription(description, currentProfile) {
     return this.runLogicModel(prompts.processManualChatDescription(description, currentProfile));
+}
+
+async generateSpontaneousMessage(history, chatProfile = null) {
+  const context = (history || []).slice(-15).map(m => `${m.role}: ${m.text}`).join('\\n');
+  const topic = chatProfile?.topic || '';
+  const prompt = `Ты Абсос (можно Обсос), дерзкий участник группового чата. Сам выбери, уместно ли коротко вмешаться в разговор. Можешь естественно пошутить, подколоть или умеренно выругаться, если это подходит вайбу.\nТема чата: ${JSON.stringify(topic)}\nПоследние сообщения:\n${context}\n\nНапиши одно короткое сообщение по контексту (до 350 символов), только если есть естественная мысль, шутка или полезное замечание. Не обращайся к себе как к боту, не выдумывай факты, не начинай новый разговор без повода. Если вмешиваться неуместно, верни ровно NO_REPLY. Верни только текст сообщения или NO_REPLY.`;
+  const text = await this.runLogicText(prompt);
+  if (!text || /^NO_REPLY$/i.test(text.trim())) return '';
+  return text.trim().slice(0, 700);
 }
 
 async determineReaction(contextText) {

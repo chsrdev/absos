@@ -59,11 +59,11 @@ module.exports = {
   // === АКТУАЛЬНЫЕ МОДЕЛИ (АВГУСТ 2026) ===
 
   // 1. УМНАЯ (Ответы в чате)
-  mainModel: 'google/gemini-3.8-flash',
+  mainModel: process.env.AI_MAIN_MODEL || 'openrouter/free',
   
   // 2. ЛОГИКА (Анализ, реакции, проверки)
   // Free версия недоступна, используем эффективную платную
-  logicModel: 'google/gemma-3-27b-it', 
+  logicModel: process.env.AI_LOGIC_MODEL || 'openrouter/free',
 
   // === ПОИСК (RAG или NATIVE) ===
   // Варианты: 
@@ -90,6 +90,11 @@ module.exports = {
   fallbackModelName: 'gemini-2.5-flash-lite',
   contextSize: 30,
 
+  // Optional spontaneous group messages. Disabled by default to avoid spam.
+  spontaneousEnabled: /^(?:true|on|1)$/i.test((process.env.SPONTANEOUS_ENABLED || '').trim()),
+  spontaneousChance: Math.min(1, Math.max(0, Number(process.env.SPONTANEOUS_CHANCE || 0.01))),
+  spontaneousCooldownMs: positiveNumber(process.env.SPONTANEOUS_COOLDOWN_MINUTES, 60) * 60 * 1000,
+
   // === ПОТОЛОК ВЫВОДА МОДЕЛИ ===
   // Раньше было 3500 — длинные ответы рвало на полуслове (особенно с блоком «Источники»).
   // Telegram rich (sendRichMessage) держит ~32k символов, а модели — до 64k токенов,
@@ -114,5 +119,5 @@ module.exports = {
   officeTextMaxChars: Math.floor(positiveNumber(process.env.OFFICE_TEXT_MAX_CHARS, 100000)),
   officeExpandedMaxBytes: Math.floor(positiveNumber(process.env.OFFICE_EXPANDED_MAX_MB, 32) * 1024 * 1024),
 
-  triggerRegex: /(?<![а-яёa-z])(сыч|sych)(?![а-яёa-z])/i,
+  triggerRegex: /(?<![а-яёa-z])(?:абсос|обсос|сыч|sych)(?![а-яёa-z])/i,
 };

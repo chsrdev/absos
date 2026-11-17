@@ -16,6 +16,22 @@ const { ConversationFollowups } = require('../utils/conversation-followups');
 const conversationFollowups = new ConversationFollowups();
 const { shouldAutoTldr, validTldr, AutoTldrJobs } = require('../utils/auto-tldr');
 const autoTldrJobs = new AutoTldrJobs();
+const spontaneousLastSent = new Map();
+let cachedBotUsername = null;
+
+async function messageMentionsBot(bot, msg, text) {
+  const entities = msg.entities || msg.caption_entities || [];
+  if (!text.includes('@') && !entities.some(entity => entity.type === 'mention')) return false;
+  if (!cachedBotUsername && typeof bot.getMe === 'function') {
+    try { cachedBotUsername = String((await bot.getMe()).username || '').toLowerCase(); }
+    catch (error) { console.warn(`[MENTION] Не удалось получить username бота: ${error.message}`); }
+  }
+  if (!cachedBotUsername) return false;
+  const expected = `@${cachedBotUsername}`;
+  if (entities.some(entity => entity.type === 'mention'
+      && text.slice(entity.offset, entity.offset + entity.length).toLowerCase() === expected)) return true;
+  return new RegExp(`(^|\\s)@${cachedBotUsername}(?![a-z0-9_])`, 'i').test(text);
+}
 const {
   buildOfficePromptContext,
   extractOfficeText,
@@ -411,7 +427,9 @@ async function processMessage(bot, msg, { directChat = false } = {}) {
     const sourceFollowup = ownQuestionFollowup || (isReplyToBot ? conversationFollowups.getSource(msg, threadId) : null)
         || conversationFollowups.getRecentSource(msg, threadId);
     let hasTriggerWord = config.triggerRegex.test(cleanText);
-    let isDirectlyCalled = directChat || hasTriggerWord || isReplyToBot || Boolean(ownQuestionFollowup);
+    const hasBotMention = await messageMentionsBot(bot, msg, text);
+    let isDirectlyCalled = directChat || hasTriggerWord || hasBotMention || isReplyToBot || Boolean(ownQuestionFollowup);
+    console.log(`[ROUTING] chat=${chatId} direct=${directChat} trigger=${hasTriggerWord} mention=${hasBotMention} replyToBot=${Boolean(isReplyToBot)} followup=${Boolean(ownQuestionFollowup)} shouldAnswer=${isDirectlyCalled}`);
     const followupToken = conversationFollowups.begin(msg, threadId, { botId: config.botId, inherited: sourceFollowup });
     const isStaleProfileReply = () => profileDeletionPending(userId)
         || memoryRevision(userId) !== userMemoryRevision || chatMemoryRevision(chatId) !== userChatMemoryRevision || Boolean(followupToken?.cancelled);
@@ -962,6 +980,31 @@ async function processMessage(bot, msg, { directChat = false } = {}) {
         }
     });
 }
+
+  // === РЕДКАЯ ИНИЦИАТИВА БОТА ===
+  // Использует только недавний контекст и не запускает веб-поиск.
+  if (!shouldAnswer && config.spontaneousEnabled && !isReplyToBot && text.length >= 12
+      && chatHistory[historyKey]?.length >= 5 && Math.random() < config.spontaneousChance) {
+    const spontaneousKey = `${chatId}:${threadId || 0}`;
+    const lastSent = spontaneousLastSent.get(spontaneousKey) || 0;
+    if (Date.now() - lastSent >= config.spontaneousCooldownMs) {
+      spontaneousLastSent.set(spontaneousKey, Date.now());
+      startTyping();
+      try {
+        const response = await ai.generateSpontaneousMessage(chatHistory[historyKey], storage.getChatProfile(chatId));
+        if (response && !isSilenced()) {
+          const sent = await sendRich(bot, chatId, { markdown: normalizeMd(response) }, baseOpts(msg, threadId));
+          if (sent?.ok !== false) addToHistory(historyKey, 'Сыч', response, config.botId);
+          else spontaneousLastSent.delete(spontaneousKey);
+        } else spontaneousLastSent.delete(spontaneousKey);
+      } catch (error) {
+        spontaneousLastSent.delete(spontaneousKey);
+        console.warn(`[SPONTANEOUS] ${error.message}`);
+      } finally {
+        stopTyping();
+      }
+    }
+  }
 
   // === ОТПРАВКА ОТВЕТА ===
   if (shouldAnswer) {
